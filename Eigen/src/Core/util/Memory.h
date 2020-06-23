@@ -301,10 +301,10 @@ template<typename T> EIGEN_DEVICE_FUNC inline void destruct_elements_of_array(T 
   */
 template<typename T> EIGEN_DEVICE_FUNC inline T* construct_elements_of_array(T *ptr, std::size_t size)
 {
-  std::size_t i;
+  std::size_t i = 0;
   EIGEN_TRY
   {
-      for (i = 0; i < size; ++i) ::new (ptr + i) T;
+      for (; i < size; ++i) ::new (ptr + i) T;
       return ptr;
   }
   EIGEN_CATCH(...)
@@ -312,7 +312,7 @@ template<typename T> EIGEN_DEVICE_FUNC inline T* construct_elements_of_array(T *
     destruct_elements_of_array(ptr, i);
     EIGEN_THROW;
   }
-  return NULL;
+  EIGEN_CONDITIONALLY_UNREACHABLE(return NULL);
 }
 
 /*****************************************************************************
@@ -343,7 +343,7 @@ template<typename T> EIGEN_DEVICE_FUNC inline T* aligned_new(std::size_t size)
     aligned_free(result);
     EIGEN_THROW;
   }
-  return result;
+  EIGEN_CONDITIONALLY_UNREACHABLE(return result;)
 }
 
 template<typename T, bool Align> EIGEN_DEVICE_FUNC inline T* conditional_aligned_new(std::size_t size)
@@ -359,7 +359,7 @@ template<typename T, bool Align> EIGEN_DEVICE_FUNC inline T* conditional_aligned
     conditional_aligned_free<Align>(result);
     EIGEN_THROW;
   }
-  return result;
+  EIGEN_CONDITIONALLY_UNREACHABLE(return result;)
 }
 
 /** \internal Deletes objects constructed with aligned_new
@@ -399,7 +399,7 @@ template<typename T, bool Align> EIGEN_DEVICE_FUNC inline T* conditional_aligned
       EIGEN_THROW;
     }
   }
-  return result;
+  EIGEN_CONDITIONALLY_UNREACHABLE(return result;)
 }
 
 
