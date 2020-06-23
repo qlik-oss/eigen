@@ -20,6 +20,10 @@
 #ifndef EIGEN_MEMORY_H
 #define EIGEN_MEMORY_H
 
+#ifndef EIGEN_USE_CUSTOM_MALLOC
+  #define EIGEN_USE_CUSTOM_MALLOC 0
+#endif
+
 #ifndef EIGEN_MALLOC_ALREADY_ALIGNED
 
 // Try to determine automatically if malloc is already aligned.
@@ -48,15 +52,48 @@
   #define EIGEN_FREEBSD_MALLOC_ALREADY_ALIGNED 0
 #endif
 
+#if EIGEN_USE_CUSTOM_MALLOC && !defined(EIGEN_CUSTOM_MALLOC_ALIGNED_BYTES)
+  #define EIGEN_CUSTOM_MALLOC_ALIGNED_BYTES 0
+#endif
+
+#if EIGEN_USE_CUSTOM_MALLOC && (EIGEN_CUSTOM_MALLOC_ALIGNED_BYTES & (EIGEN_DEFAULT_ALIGN_BYTES - 1) == 0)
+  #define EIGEN_CUSTOM_MALLOC_ALREADY_ALIGNED 1
+#else
+  #define EIGEN_CUSTOM_MALLOC_ALREADY_ALIGNED 0
+#endif
+
 #if (EIGEN_OS_MAC && (EIGEN_DEFAULT_ALIGN_BYTES == 16))     \
  || (EIGEN_OS_WIN64 && (EIGEN_DEFAULT_ALIGN_BYTES == 16))   \
  || EIGEN_GLIBC_MALLOC_ALREADY_ALIGNED              \
- || EIGEN_FREEBSD_MALLOC_ALREADY_ALIGNED
+ || EIGEN_FREEBSD_MALLOC_ALREADY_ALIGNED            \
+ || EIGEN_CUSTOM_MALLOC_ALREADY_ALIGNED 
   #define EIGEN_MALLOC_ALREADY_ALIGNED 1
 #else
   #define EIGEN_MALLOC_ALREADY_ALIGNED 0
 #endif
 
+#endif
+
+#if EIGEN_USE_CUSTOM_MALLOC
+  #ifdef EIGEN_CUSTOM_MALLOC_NAME 
+    #define EIGEN_MALLOC_NAME EIGEN_CUSTOM_MALLOC_NAME
+  #else
+    #error "EIGEN_USE_CUSTOM_MALLOC is true but EIGEN_CUSTOM_MALLOC_NAME is not defined"
+  #endif
+  #ifdef EIGEN_CUSTOM_REALLOC_NAME 
+    #define EIGEN_REALLOC_NAME EIGEN_CUSTOM_REALLOC_NAME
+  #else
+    #error "EIGEN_USE_CUSTOM_MALLOC is true but EIGEN_CUSTOM_REALLOC_NAME is not defined"
+  #endif
+  #ifdef EIGEN_CUSTOM_FREE_NAME 
+    #define EIGEN_FREE_NAME EIGEN_CUSTOM_FREE_NAME
+  #else
+    #error "EIGEN_USE_CUSTOM_MALLOC is true but EIGEN_CUSTOM_FREE_NAME is not defined"
+  #endif
+#else
+  #define EIGEN_MALLOC_NAME std::malloc
+  #define EIGEN_REALLOC_NAME std::realloc
+  #define EIGEN_FREE_NAME std::free
 #endif
 
 namespace Eigen {
@@ -85,7 +122,7 @@ inline void throw_std_bad_alloc()
   */
 inline void* handmade_aligned_malloc(std::size_t size)
 {
-  void *original = std::malloc(size+EIGEN_DEFAULT_ALIGN_BYTES);
+  void *original = EIGEN_MALLOC_NAME(size+EIGEN_DEFAULT_ALIGN_BYTES);
   if (original == 0) return 0;
   void *aligned = reinterpret_cast<void*>((reinterpret_cast<std::size_t>(original) & ~(std::size_t(EIGEN_DEFAULT_ALIGN_BYTES-1))) + EIGEN_DEFAULT_ALIGN_BYTES);
   *(reinterpret_cast<void**>(aligned) - 1) = original;
@@ -95,7 +132,7 @@ inline void* handmade_aligned_malloc(std::size_t size)
 /** \internal Frees memory allocated with handmade_aligned_malloc */
 inline void handmade_aligned_free(void *ptr)
 {
-  if (ptr) std::free(*(reinterpret_cast<void**>(ptr) - 1));
+  if (ptr) EIGEN_FREE_NAME(*(reinterpret_cast<void**>(ptr) - 1));
 }
 
 /** \internal
@@ -108,7 +145,7 @@ inline void* handmade_aligned_realloc(void* ptr, std::size_t size, std::size_t =
   if (ptr == 0) return handmade_aligned_malloc(size);
   void *original = *(reinterpret_cast<void**>(ptr) - 1);
   std::ptrdiff_t previous_offset = static_cast<char *>(ptr)-static_cast<char *>(original);
-  original = std::realloc(original,size+EIGEN_DEFAULT_ALIGN_BYTES);
+  original = EIGEN_REALLOC_NAME(original,size+EIGEN_DEFAULT_ALIGN_BYTES);
   if (original == 0) return 0;
   void *aligned = reinterpret_cast<void*>((reinterpret_cast<std::size_t>(original) & ~(std::size_t(EIGEN_DEFAULT_ALIGN_BYTES-1))) + EIGEN_DEFAULT_ALIGN_BYTES);
   void *previous_aligned = static_cast<char *>(original)+previous_offset;
@@ -156,7 +193,7 @@ EIGEN_DEVICE_FUNC inline void* aligned_malloc(std::size_t size)
 
   void *result;
   #if (EIGEN_DEFAULT_ALIGN_BYTES==0) || EIGEN_MALLOC_ALREADY_ALIGNED
-    result = std::malloc(size);
+    result = EIGEN_MALLOC_NAME(size);
     #if EIGEN_DEFAULT_ALIGN_BYTES==16
     eigen_assert((size<16 || (std::size_t(result)%16)==0) && "System's malloc returned an unaligned pointer. Compile with EIGEN_MALLOC_ALREADY_ALIGNED=0 to fallback to handmade alignd memory allocator.");
     #endif
@@ -174,7 +211,7 @@ EIGEN_DEVICE_FUNC inline void* aligned_malloc(std::size_t size)
 EIGEN_DEVICE_FUNC inline void aligned_free(void *ptr)
 {
   #if (EIGEN_DEFAULT_ALIGN_BYTES==0) || EIGEN_MALLOC_ALREADY_ALIGNED
-    std::free(ptr);
+    EIGEN_FREE_NAME(ptr);
   #else
     handmade_aligned_free(ptr);
   #endif
@@ -191,7 +228,7 @@ inline void* aligned_realloc(void *ptr, std::size_t new_size, std::size_t old_si
 
   void *result;
 #if (EIGEN_DEFAULT_ALIGN_BYTES==0) || EIGEN_MALLOC_ALREADY_ALIGNED
-  result = std::realloc(ptr,new_size);
+  result = EIGEN_REALLOC_NAME(ptr,new_size);
 #else
   result = handmade_aligned_realloc(ptr,new_size,old_size);
 #endif
@@ -218,7 +255,7 @@ template<> EIGEN_DEVICE_FUNC inline void* conditional_aligned_malloc<false>(std:
 {
   check_that_malloc_is_allowed();
 
-  void *result = std::malloc(size);
+  void *result = EIGEN_MALLOC_NAME(size);
   if(!result && size)
     throw_std_bad_alloc();
   return result;
@@ -232,7 +269,7 @@ template<bool Align> EIGEN_DEVICE_FUNC inline void conditional_aligned_free(void
 
 template<> EIGEN_DEVICE_FUNC inline void conditional_aligned_free<false>(void *ptr)
 {
-  std::free(ptr);
+  EIGEN_FREE_NAME(ptr);
 }
 
 template<bool Align> inline void* conditional_aligned_realloc(void* ptr, std::size_t new_size, std::size_t old_size)
@@ -242,7 +279,7 @@ template<bool Align> inline void* conditional_aligned_realloc(void* ptr, std::si
 
 template<> inline void* conditional_aligned_realloc<false>(void* ptr, std::size_t new_size, std::size_t)
 {
-  return std::realloc(ptr, new_size);
+  return EIGEN_REALLOC_NAME(ptr, new_size);
 }
 
 /*****************************************************************************
